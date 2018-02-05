@@ -1,0 +1,6 @@
+tensorflow-gpu
+keras
+numpy
+pyperclip
+python-shogi
+h5py
