@@ -40,11 +40,13 @@ class SelfPlayWorker:
             then the list of prior probabilities for each action, given by the visit count of each of the states
             reached by the action (actions indexed according to how they are ordered in the uci move list).
     """
+
     def __init__(self, config: Config):
         self.config = config
         self.current_model = self.load_model()
         self.m = Manager()
-        self.cur_pipes = self.m.list([self.current_model.get_pipes(self.config.play.search_threads) for _ in range(self.config.play.max_processes)])
+        self.cur_pipes = self.m.list([self.current_model.get_pipes(self.config.play.search_threads)
+                                      for _ in range(self.config.play.max_processes)])
         self.buffer = []
 
     def start(self):
@@ -55,26 +57,24 @@ class SelfPlayWorker:
 
         futures = deque()
         with ProcessPoolExecutor(max_workers=self.config.play.max_processes) as executor:
-            for game_idx in range(self.config.play.max_processes * 2):
+            for game_idx in range(self.config.play.max_processes):
                 futures.append(executor.submit(self_play_buffer, self.config, cur=self.cur_pipes))
             game_idx = 0
             while True:
                 game_idx += 1
                 start_time = time()
                 env, data = futures.popleft().result()
-                print(f"game {game_idx:3} time={time() - start_time:5.1f}s "
-                    f"halfmoves={env.num_halfmoves:3} {env.winner:12} "
-                    f"{'by resign ' if env.resigned else '          '}")
+                logger.info(f"game {game_idx:3} time={time() - start_time:5.1f}s "
+                            f"halfmoves={env.num_halfmoves:3} {env.winner:12} "
+                            f"{'by resign ' if env.resigned else '          '}")
 
                 pretty_print(env, ("current_model", "current_model"))
                 self.buffer += data
                 if (game_idx % self.config.play_data.nb_game_in_file) == 0:
+                    logger.debug('flash buffer {} {}'.format(game_idx, self.config.play_data.nb_game_in_file))
                     self.flush_buffer()
                     reload_best_model_weight_if_changed(self.current_model)
-                futures.append(executor.submit(self_play_buffer, self.config, cur=self.cur_pipes)) # Keep it going
-
-        if len(data) > 0:
-            self.flush_buffer()
+                futures.append(executor.submit(self_play_buffer, self.config, cur=self.cur_pipes))  # Keep it going
 
     def load_model(self):
         """
@@ -119,17 +119,20 @@ def self_play_buffer(config, cur) -> (ShogiEnv, list):
     :return (ShogiEnv,list((str,list(float)): a tuple containing the final ShogiEnv state and then a list
         of data to be appended to the SelfPlayWorker.buffer
     """
-    pipes = cur.pop() # borrow
+    pipes = cur.pop()  # borrow
     env = ShogiEnv().reset()
 
     white = ShogiPlayer(config, pipes=pipes)
     black = ShogiPlayer(config, pipes=pipes)
 
     while not env.done:
+        # print(env.board)
+        print(env.board.sfen())
         if env.white_to_move:
             action = white.action(env)
         else:
             action = black.action(env)
+        # print(action)
         env.step(action)
         if env.num_halfmoves >= config.play.max_game_length:
             env.adjudicate()

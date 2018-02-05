@@ -27,9 +27,11 @@ class VisitStats:
         :ivar int sum_n: sum of the n value for each of the actions in self.a, representing total
             visits over all actions in self.a.
     """
+
     def __init__(self):
         self.a = defaultdict(ActionStats)
         self.sum_n = 0
+        #self.p = None
 
 
 class ActionStats:
@@ -48,6 +50,7 @@ class ActionStats:
             by the policy network.
 
     """
+
     def __init__(self):
         self.n = 0
         self.w = 0
@@ -67,7 +70,7 @@ class ShogiPlayer:
             if not specifically specified.
         :ivar int labels_n: length of self.labels.
         :ivar list(str) labels: all of the possible move labels (like a1b1, a1c1, etc...)
-        :ivar dict(str,int) move_lookup: dict from move label to its index in self.labels
+        :ivar dict(str, int) move_lookup: dict from move label to its index in self.labels
         :ivar list(Connection) pipe_pool: the pipes to send the observations of the game to to get back
             value and policy predictions from
         :ivar dict(str,Lock) node_lock: dict from SFEN game state to a Lock, indicating
@@ -76,6 +79,7 @@ class ShogiPlayer:
             during the running of the AGZ algorithm
     """
     # dot = False
+
     def __init__(self, config: Config, pipes=None, play_config=None, dummy=False):
         self.moves = []
 
@@ -84,7 +88,7 @@ class ShogiPlayer:
         self.play_config = play_config or self.config.play
         self.labels_n = config.n_labels
         self.labels = config.labels
-        self.move_lookup = {shogi.Move.from_uci(move): i for move, i in zip(self.labels, range(self.labels_n))}
+        self.move_lookup = {shogi.Move.from_usi(move): i for move, i in zip(self.labels, range(self.labels_n))}
         if dummy:
             return
 
@@ -107,7 +111,7 @@ class ShogiPlayer:
             moi = self.move_lookup[action]
             stats.append(np.asarray([a_s.n, a_s.w, a_s.q, a_s.p, moi]))
         stats = np.asarray(stats)
-        a = stats[stats[:,0].argsort()[::-1]]
+        a = stats[stats[:, 0].argsort()[::-1]]
 
         for s in a:
             print(f'{self.labels[int(s[4])]:5}: '
@@ -116,7 +120,7 @@ class ShogiPlayer:
                   f'q: {s[2]:7.3f} '
                   f'p: {s[3]:7.5f}')
 
-    def action(self, env, can_stop = True) -> str:
+    def action(self, env, can_stop=True) -> str:
         """
         Figures out the next best move
         within the specified environment and returns a string describing the action to take.
@@ -124,22 +128,32 @@ class ShogiPlayer:
         :param ShogiEnv env: environment in which to figure out the action
         :param boolean can_stop: whether we are allowed to take no action (return None)
         :return: None if no action should be taken (indicating a resign). Otherwise, returns a string
-            indicating the action to take in uci format
+            indicating the action to take in usi format
         """
         self.reset()
 
         # for tl in range(self.play_config.thinking_loop):
         root_value, naked_value = self.search_moves(env)
         policy = self.calc_policy(env)
-        my_action = int(np.random.choice(range(self.labels_n), p = self.apply_temperature(policy, env.num_halfmoves)))
+
+        legal_moves = []
+        legal_policy = []
+        for mov in env.board.legal_moves:
+            idx = self.move_lookup[mov]
+            legal_moves.append(idx)
+            legal_policy.append(policy[idx])
+
+        my_action = int(np.random.choice(legal_moves,
+                                         p=self.apply_temperature(legal_policy, env.num_halfmoves)))
 
         if can_stop and self.play_config.resign_threshold is not None and \
-                        root_value <= self.play_config.resign_threshold \
-                        and env.num_halfmoves > self.play_config.min_resign_turn:
+                root_value <= self.play_config.resign_threshold \
+                and env.num_halfmoves > self.play_config.min_resign_turn:
             # noinspection PyTypeChecker
             return None
         else:
-            self.moves.append([env.observation, list(policy)])
+            #self.moves.append([env.observation, list(policy), root_value])
+            self.moves.append([env.observation, root_value])
             return self.config.labels[my_action]
 
     def search_moves(self, env) -> (float, float):
@@ -159,7 +173,7 @@ class ShogiPlayer:
 
         vals = [f.result() for f in futures]
 
-        return np.max(vals), vals[0] # vals[0] is kind of racy
+        return np.max(vals), vals[0]  # vals[0] is kind of racy
 
     def search_my_move(self, env: ShogiEnv, is_root_node=False) -> float:
         """
@@ -174,6 +188,7 @@ class ShogiPlayer:
         :return float: value of the move. This is calculated by getting a prediction
             from the value network.
         """
+
         if env.done:
             if env.winner == Winner.draw:
                 return 0
@@ -181,16 +196,21 @@ class ShogiPlayer:
             return -1
 
         state = state_key(env)
-
+        # print(state)
+        # print(env.board)
         with self.node_lock[state]:
             if state not in self.tree:
                 leaf_p, leaf_v = self.expand_and_evaluate(env)
                 self.tree[state].p = leaf_p
-                return leaf_v # I'm returning everything from the POV of side to move
-
+                return leaf_v  # I'm returning everything from the POV of side to move
             # SELECT STEP
             action_t = self.select_action_q_and_u(env, is_root_node)
-
+            if action_t is None:
+                print("AAAAAAAAAAAAAAAAAAAAAAAA")
+                print(env.white_to_move)
+                print(env.board)
+                print("AAAAAAAAAAAAAAAAAAAAAAAA")
+                return -1
             virtual_loss = self.play_config.virtual_loss
 
             my_visit_stats = self.tree[state]
@@ -200,8 +220,9 @@ class ShogiPlayer:
             my_stats.n += virtual_loss
             my_stats.w += -virtual_loss
             my_stats.q = my_stats.w / my_stats.n
-
-        env.step(action_t.uci())
+        # print(action_t)
+        # print("---------")
+        env.step(action_t.usi())
         leaf_v = self.search_my_move(env)  # next move from enemy POV
         leaf_v = -leaf_v
 
@@ -230,7 +251,7 @@ class ShogiPlayer:
         # these are canonical policy and value (i.e. side to move is "white")
 
         if not env.white_to_move:
-            leaf_p = Config.flip_policy(leaf_p) # get it back to python-shogi form
+            leaf_p = Config.flip_policy(leaf_p)  # get it back to python-shogi form
 
         return leaf_p, leaf_v
 
@@ -238,7 +259,7 @@ class ShogiPlayer:
         """
         Gets a prediction from the policy and value network
         :param state_planes: the observation state represented as planes
-        :return (float,float): policy (prior probability of taking the action leading to this state)
+        :return (float, float): policy (prior probability of taking the action leading to this state)
             and value network (value of the state) prediction for this state.
         """
         pipe = self.pipe_pool.pop()
@@ -247,7 +268,6 @@ class ShogiPlayer:
         self.pipe_pool.append(pipe)
         return ret
 
-    #@profile
     def select_action_q_and_u(self, env, is_root_node) -> shogi.Move:
         """
         Picks the next action to explore using the AGZ MCTS algorithm.
@@ -264,7 +284,7 @@ class ShogiPlayer:
 
         my_visitstats = self.tree[state]
 
-        if my_visitstats.p is not None: #push p to edges
+        if my_visitstats.p is not None:  # push p to edges
             tot_p = 1e-8
             for mov in env.board.legal_moves:
                 mov_p = my_visitstats.p[self.move_lookup[mov]]
@@ -284,12 +304,12 @@ class ShogiPlayer:
         best_a = None
         if is_root_node:
             noise = np.random.dirichlet([dir_alpha] * len(my_visitstats.a))
-        
+
         i = 0
         for action, a_s in my_visitstats.a.items():
             p_ = a_s.p
             if is_root_node:
-                p_ = (1-e) * p_ + e * noise[i]
+                p_ = (1 - e) * p_ + e * noise[i]
                 i += 1
             b = a_s.q + c_puct * p_ * xx_ / (1 + a_s.n)
             if b > best_s:
@@ -311,11 +331,11 @@ class ShogiPlayer:
             tau = 0
         if tau == 0:
             action = np.argmax(policy)
-            ret = np.zeros(self.labels_n)
+            ret = np.zeros(len(policy))
             ret[action] = 1.0
             return ret
         else:
-            ret = np.power(policy, 1/tau)
+            ret = np.power(policy, 1 / tau)
             ret /= np.sum(ret)
             return ret
 
@@ -328,7 +348,6 @@ class ShogiPlayer:
         policy = np.zeros(self.labels_n)
         for action, a_s in my_visitstats.a.items():
             policy[self.move_lookup[action]] = a_s.n
-
         policy /= np.sum(policy)
         return policy
 
@@ -337,16 +356,16 @@ class ShogiPlayer:
         Logs the action in self.moves. Useful for generating a game using game data.
 
         :param str observation: FEN format observation indicating the game state
-        :param str my_action: uci format action to take
+        :param str my_action: usi format action to take
         :param float weight: weight to assign to the taken action when logging it in self.moves
         :return str: the action, unmodified.
         """
         policy = np.zeros(self.labels_n)
 
-        k = self.move_lookup[shogi.Move.from_uci(my_action)]
+        k = self.move_lookup[shogi.Move.from_usi(my_action)]
         policy[k] = weight
 
-        self.moves.append([observation, list(policy)])
+        self.moves.append([observation])
         return my_action
 
     def finish_game(self, z):
@@ -366,5 +385,5 @@ def state_key(env: ShogiEnv) -> str:
     :param ShogiEnv env: env to encode
     :return str: a str representation of the game state
     """
-    fen = env.board.sfen().rsplit(' ', 1) # drop the move clock
+    fen = env.board.sfen().rsplit(' ', 1)  # drop the move clock
     return fen[0]

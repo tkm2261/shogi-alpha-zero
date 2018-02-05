@@ -11,10 +11,11 @@ class PlayWithHumanConfig:
     Config for allowing human to play against an agent using uci
 
     """
+
     def __init__(self):
         self.simulation_num_per_move = 1200
         self.threads_multiplier = 2
-        self.c_puct = 1 # lower  = prefer mean action value
+        self.c_puct = 1  # lower  = prefer mean action value
         self.noise_eps = 0
         self.tau_decay_rate = 0  # start deterministic mode
         self.resign_threshold = None
@@ -41,6 +42,7 @@ class ResourceConfig:
     """
     Config describing all of the directories and resources needed during running this project
     """
+
     def __init__(self):
         self.project_dir = os.environ.get("PROJECT_DIR", _project_dir())
         self.data_dir = os.environ.get("DATA_DIR", _data_dir())
@@ -79,8 +81,11 @@ def flipped_uci_labels():
     them into a returned list.
     :return:
     """
+    letters = ["a", "b", "c", "d", "e", "f", "g", "h", "i"]  # row
+    map_conv = {c: letters[len(letters) - 1 - i] for i, c in enumerate(letters)}
+
     def repl(x):
-        return "".join([(str(9 - int(a)) if a.isdigit() else a) for a in x])
+        return "".join([map_conv[a] if a in map_conv else a for a in x])
 
     return [repl(x) for x in create_uci_labels()]
 
@@ -91,35 +96,33 @@ def create_uci_labels():
     :return:
     """
     labels_array = []
-    letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-    numbers = ['1', '2', '3', '4', '5', '6', '7', '8']
-    promoted_to = ['q', 'r', 'b', 'n']
+    numbers = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]  # col
+    letters = ["a", "b", "c", "d", "e", "f", "g", "h", "i"]  # row
+    hands = ["R", "B", "G", "S", "N", "L", "P"]
+    promotion = "+"
 
-    for l1 in range(8):
-        for n1 in range(8):
-            destinations = [(t, n1) for t in range(8)] + \
-                           [(l1, t) for t in range(8)] + \
-                           [(l1 + t, n1 + t) for t in range(-7, 8)] + \
-                           [(l1 + t, n1 - t) for t in range(-7, 8)] + \
-                           [(l1 + a, n1 + b) for (a, b) in
-                            [(-2, -1), (-1, -2), (-2, 1), (1, -2), (2, -1), (-1, 2), (2, 1), (1, 2)]]
+    for l1 in range(9):
+        for n1 in range(9):
+            for piece in hands:
+                move = piece + "*" + numbers[n1] + letters[l1]
+                labels_array.append(move)
+
+            destinations = set([(t, n1) for t in range(9)] +  # vertical moves
+                               [(l1, t) for t in range(9)] +  # horizontal moves
+                               [(l1 + t, n1 + t) for t in range(-8, 9)] +  # top-right to bottom-left moves
+                               [(l1 + t, n1 - t) for t in range(-8, 9)] +  # top-left to bottom-right moves
+                               [(l1 + a, n1 + b) for (a, b) in  # keima moves
+                                [(2, 1), (2, -1), (-2, 1), (-2, -1)]])
+
             for (l2, n2) in destinations:
-                if (l1, n1) != (l2, n2) and l2 in range(8) and n2 in range(8):
-                    move = letters[l1] + numbers[n1] + letters[l2] + numbers[n2]
+                if ((l1, n1) != (l2, n2) and
+                        l2 >= 0 and l2 < 9 and
+                        n2 >= 0 and n2 < 9):
+                    move = numbers[n1] + letters[l1] + numbers[n2] + letters[l2]
                     labels_array.append(move)
-    for l1 in range(8):
-        l = letters[l1]
-        for p in promoted_to:
-            labels_array.append(l + '2' + l + '1' + p)
-            labels_array.append(l + '7' + l + '8' + p)
-            if l1 > 0:
-                l_l = letters[l1 - 1]
-                labels_array.append(l + '2' + l_l + '1' + p)
-                labels_array.append(l + '7' + l_l + '8' + p)
-            if l1 < 7:
-                l_r = letters[l1 + 1]
-                labels_array.append(l + '2' + l_r + '1' + p)
-                labels_array.append(l + '7' + l_r + '8' + p)
+                    # promotion
+                    if (l2 < 3 or l2 > 5) or (l1 < 3 or l1 > 5):
+                        labels_array.append(move + promotion)
     return labels_array
 
 
@@ -170,7 +173,7 @@ class Config:
         self.eval = c.EvaluateConfig()
         self.labels = Config.labels
         self.n_labels = Config.n_labels
-        self.flipped_labels = Config.flipped_labels
+        # self.flipped_labels = Config.flipped_labels
 
     @staticmethod
     def flip_policy(pol):

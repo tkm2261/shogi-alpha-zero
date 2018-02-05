@@ -8,23 +8,24 @@ from threading import Thread
 
 import numpy as np
 
-from chess_zero.config import Config
+from shogi_zero.config import Config
 
 
-class ChessModelAPI:
+class ShogiModelAPI:
     """
     Defines the process which will listen on the pipe for
     an observation of the game state and return the predictions from the policy and
     value networks.
     Attributes:
-        :ivar ChessModel agent_model: ChessModel to use to make predictions.
+        :ivar ShogiModel agent_model: ShogiModel to use to make predictions.
         :ivar list(Connection): list of pipe connections to listen for states on and return predictions on.
     """
     # noinspection PyUnusedLocal
-    def __init__(self, agent_model):  # ChessModel
+
+    def __init__(self, agent_model):  # ShogiModel
         """
 
-        :param ChessModel agent_model: trained model to use to make predictions
+        :param ShogiModel agent_model: trained model to use to make predictions
         """
         self.agent_model = agent_model
         self.pipes = []
@@ -54,7 +55,7 @@ class ChessModelAPI:
         the predictions for the policy and value networks when the observations come in. Repeats.
         """
         while True:
-            ready = connection.wait(self.pipes,timeout=0.001)
+            ready = connection.wait(self.pipes, timeout=0.001)
             if not ready:
                 continue
             data, result_pipes = [], []

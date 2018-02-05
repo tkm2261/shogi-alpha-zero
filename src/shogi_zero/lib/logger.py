@@ -2,18 +2,21 @@
 Logging helper methods
 """
 
-from logging import StreamHandler, basicConfig, DEBUG, getLogger, Formatter
+from logging import StreamHandler, basicConfig, DEBUG, getLogger, Formatter, FileHandler
 
 
 def setup_logger(log_filename):
-    format_str = '%(asctime)s@%(name)s %(levelname)s # %(message)s'
-    basicConfig(filename=log_filename, level=DEBUG, format=format_str)
-    stream_handler = StreamHandler()
-    stream_handler.setFormatter(Formatter(format_str))
-    getLogger().addHandler(stream_handler)
+    logger = getLogger(None)
+    log_fmt = Formatter('%(asctime)s %(name)s %(lineno)d [%(levelname)s][%(funcName)s] %(message)s ')
 
+    handler = StreamHandler()
+    handler.setLevel(DEBUG)
+    handler.setFormatter(log_fmt)
+    logger.setLevel(DEBUG)
+    logger.addHandler(handler)
 
-if __name__ == '__main__':
-    setup_logger("aa.log")
-    logger = getLogger("test")
-    logger.info("OK")
+    handler = FileHandler(log_filename)
+    handler.setLevel(DEBUG)
+    handler.setFormatter(log_fmt)
+    logger.setLevel(DEBUG)
+    logger.addHandler(handler)

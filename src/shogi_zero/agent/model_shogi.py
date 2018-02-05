@@ -35,13 +35,14 @@ class ShogiModel:
         :ivar digest: basically just a hash of the file containing the weights being used by this model
         :ivar ShogiModelAPI api: the api to use to listen for and then return this models predictions (on a pipe).
     """
+
     def __init__(self, config: Config):
         self.config = config
         self.model = None  # type: Model
         self.digest = None
         self.api = None
 
-    def get_pipes(self, num = 1):
+    def get_pipes(self, num=1):
         """
         Creates a list of pipes on which observations of the game state will be listened for. Whenever
         an observation comes in, returns policy and value network predictions on that pipe.
@@ -59,12 +60,12 @@ class ShogiModel:
         Builds the full Keras model and stores it in self.model.
         """
         mc = self.config.model
-        in_x = x = Input((18, 8, 8))
+        in_x = x = Input((44, 9, 9))
 
         # (batch, channels, height, width)
         x = Conv2D(filters=mc.cnn_filter_num, kernel_size=mc.cnn_first_filter_size, padding="same",
                    data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg),
-                   name="input_conv-"+str(mc.cnn_first_filter_size)+"-"+str(mc.cnn_filter_num))(x)
+                   name="input_conv-" + str(mc.cnn_first_filter_size) + "-" + str(mc.cnn_filter_num))(x)
         x = BatchNormalization(axis=1, name="input_batchnorm")(x)
         x = Activation("relu", name="input_relu")(x)
 
@@ -72,42 +73,43 @@ class ShogiModel:
             x = self._build_residual_block(x, i + 1)
 
         res_out = x
-        
+
         # for policy output
         x = Conv2D(filters=2, kernel_size=1, data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg),
-                    name="policy_conv-1-2")(res_out)
+                   name="policy_conv-1-2")(res_out)
         x = BatchNormalization(axis=1, name="policy_batchnorm")(x)
         x = Activation("relu", name="policy_relu")(x)
         x = Flatten(name="policy_flatten")(x)
         # no output for 'pass'
-        policy_out = Dense(self.config.n_labels, kernel_regularizer=l2(mc.l2_reg), activation="softmax", name="policy_out")(x)
+        policy_out = Dense(self.config.n_labels, kernel_regularizer=l2(
+            mc.l2_reg), activation="softmax", name="policy_out")(x)
 
         # for value output
         x = Conv2D(filters=4, kernel_size=1, data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg),
-                    name="value_conv-1-4")(res_out)
+                   name="value_conv-1-4")(res_out)
         x = BatchNormalization(axis=1, name="value_batchnorm")(x)
-        x = Activation("relu",name="value_relu")(x)
+        x = Activation("relu", name="value_relu")(x)
         x = Flatten(name="value_flatten")(x)
         x = Dense(mc.value_fc_size, kernel_regularizer=l2(mc.l2_reg), activation="relu", name="value_dense")(x)
-        value_out = Dense(1, kernel_regularizer=l2(mc.l2_reg), activation="tanh", name="value_out")(x)
+        value_out = Dense(1, kernel_regularizer=l2(mc.l2_reg), activation="sigmoid", name="value_out")(x)
 
         self.model = Model(in_x, [policy_out, value_out], name="shogi_model")
 
     def _build_residual_block(self, x, index):
         mc = self.config.model
         in_x = x
-        res_name = "res"+str(index)
+        res_name = "res" + str(index)
         x = Conv2D(filters=mc.cnn_filter_num, kernel_size=mc.cnn_filter_size, padding="same",
-                   data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg), 
-                   name=res_name+"_conv1-"+str(mc.cnn_filter_size)+"-"+str(mc.cnn_filter_num))(x)
-        x = BatchNormalization(axis=1, name=res_name+"_batchnorm1")(x)
-        x = Activation("relu",name=res_name+"_relu1")(x)
+                   data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg),
+                   name=res_name + "_conv1-" + str(mc.cnn_filter_size) + "-" + str(mc.cnn_filter_num))(x)
+        x = BatchNormalization(axis=1, name=res_name + "_batchnorm1")(x)
+        x = Activation("relu", name=res_name + "_relu1")(x)
         x = Conv2D(filters=mc.cnn_filter_num, kernel_size=mc.cnn_filter_size, padding="same",
-                   data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg), 
-                   name=res_name+"_conv2-"+str(mc.cnn_filter_size)+"-"+str(mc.cnn_filter_num))(x)
-        x = BatchNormalization(axis=1, name="res"+str(index)+"_batchnorm2")(x)
-        x = Add(name=res_name+"_add")([in_x, x])
-        x = Activation("relu", name=res_name+"_relu2")(x)
+                   data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg),
+                   name=res_name + "_conv2-" + str(mc.cnn_filter_size) + "-" + str(mc.cnn_filter_num))(x)
+        x = BatchNormalization(axis=1, name="res" + str(index) + "_batchnorm2")(x)
+        x = Add(name=res_name + "_add")([in_x, x])
+        x = Activation("relu", name=res_name + "_relu2")(x)
         return x
 
     @staticmethod

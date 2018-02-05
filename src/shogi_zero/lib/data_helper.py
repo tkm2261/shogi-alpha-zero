@@ -8,22 +8,23 @@ from datetime import datetime
 from glob import glob
 from logging import getLogger
 
-import chess
-import pyperclip
-from chess_zero.config import ResourceConfig
+import shogi
+#import pyperclip
+from shogi_zero.config import ResourceConfig
 
 logger = getLogger(__name__)
 
 
 def pretty_print(env, colors):
-    new_pgn = open("test3.pgn", "at")
-    game = chess.pgn.Game.from_board(env.board)
-    game.headers["Result"] = env.result
-    game.headers["White"], game.headers["Black"] = colors
-    game.headers["Date"] = datetime.now().strftime("%Y.%m.%d")
-    new_pgn.write(str(game) + "\n\n")
+    new_pgn = open("test3.txt", "at")
+    game = {}
+    game["SFEN"] = env.board.sfen()
+    game["Result"] = env.result
+    game["White"], game["Black"] = colors
+    game["Date"] = datetime.now().strftime("%Y.%m.%d")
+    new_pgn.write(json.dumps(game) + "\n\n")
     new_pgn.close()
-    pyperclip.copy(env.board.fen())
+    # pyperclip.copy(env.board.fen())
 
 
 def find_pgn_files(directory, pattern='*.pgn'):
@@ -58,4 +59,3 @@ def read_game_data_from_file(path):
             return json.load(f)
     except Exception as e:
         print(e)
-

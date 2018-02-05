@@ -2,26 +2,26 @@
 Encapsulates the functionality for representing
 and operating on the shogi environment.
 """
+import copy
 import enum
+from collections import defaultdict
 import shogi
 import numpy as np
-import copy
+
+
+from .consts import (
+    # PIECES,
+    NUM_PIECES,
+    PICCES_IDX,
+    # HANDABLE_PIECES,
+    NUM_HANDABLE_PIECES,
+    HANDABLE_PIECES_IDX,
+)
 
 from logging import getLogger
-
 logger = getLogger(__name__)
 
-# noinspection PyArgumentList
 Winner = enum.Enum("Winner", "black white draw")
-
-# input planes
-# noinspection SpellCheckingInspection
-pieces_order = 'KQRBNPkqrbnp' # 12x8x8
-castling_order = 'KQkq'       # 4x8x8
-# fifty-move-rule             # 1x8x8
-# en en_passant               # 1x8x8
-
-ind = {pieces_order[i]: i for i in range(12)}
 
 
 class ShogiEnv:
@@ -35,9 +35,11 @@ class ShogiEnv:
         :ivar boolean resigned: whether non-winner resigned
         :ivar str result: str encoding of the result, 1-0, 0-1, or 1/2-1/2
     """
+
     def __init__(self):
         self.board = None
         self.num_halfmoves = 0
+        self.map_count_state = None
         self.winner = None  # type: Winner
         self.resigned = False
         self.result = None
@@ -49,6 +51,8 @@ class ShogiEnv:
         """
         self.board = shogi.Board()
         self.num_halfmoves = 0
+        self.map_count_state = defaultdict(int)
+        self.map_count_state[self.board.sfen().split(" ")[0]] += 1
         self.winner = None
         self.resigned = False
         return self
@@ -60,6 +64,8 @@ class ShogiEnv:
         :return ShogiEnv: self
         """
         self.board = shogi.Board(board)
+        self.map_count_state = defaultdict(int)
+        self.map_count_state[self.board.sfen().split(" ")[0]] += 1
         self.winner = None
         self.resigned = False
         return self
@@ -74,36 +80,31 @@ class ShogiEnv:
 
     @property
     def white_to_move(self):
-        return self.board.turn == shogi.WHITE
+        return self.board.turn == 0
 
     def step(self, action: str, check_over=True):
         """
 
         Takes an action and updates the game state
 
-        :param str action: action to take in uci notation
+        :param str action: action to take in usi notation
         :param boolean check_over: whether to check if game is over
         """
-        if check_over and action is None:
+        if action is None:
             self._resign()
             return
-
-        self.board.push_uci(action)
+        try:
+            self.board.push_usi(action)
+        except ValueError:
+            self._resign()
+            return
+        board = self.board.sfen().split(" ")[0]
+        self.map_count_state[board] += 1
+        if self.map_count_state[board] >= 4:
+            self.ending_average_game()
+            return
 
         self.num_halfmoves += 1
-
-        if check_over and self.board.result(claim_draw=True) != "*":
-            self._game_over()
-
-    def _game_over(self):
-        if self.winner is None:
-            self.result = self.board.result(claim_draw=True)
-            if self.result == '1-0':
-                self.winner = Winner.white
-            elif self.result == '0-1':
-                self.winner = Winner.black
-            else:
-                self.winner = Winner.draw
 
     def _resign(self):
         self.resigned = True
@@ -115,24 +116,15 @@ class ShogiEnv:
             self.result = "1-0"
 
     def adjudicate(self):
-        score = self.testeval(absolute=True)
-        if abs(score) < 0.01:
-            self.winner = Winner.draw
-            self.result = "1/2-1/2"
-        elif score > 0:
-            self.winner = Winner.white
-            self.result = "1-0"
-        else:
-            self.winner = Winner.black
-            self.result = "0-1"
+        self.winner = Winner.draw
+        self.result = "1/2-1/2"
 
     def ending_average_game(self):
         self.winner = Winner.draw
         self.result = "1/2-1/2"
 
     def copy(self):
-        env = copy.copy(self)
-        env.board = copy.copy(self.board)
+        env = copy.deepcopy(self)
         return env
 
     def render(self):
@@ -151,44 +143,147 @@ class ShogiEnv:
             fee = self.board.sfen()
             self.board.pop()
             if fee == fen_next:
-                return mov.uci()
+                return mov.usi()
         return None
-
-    def replace_tags(self):
-        return replace_tags_board(self.board.sfen())
 
     def canonical_input_planes(self):
         """
 
-        :return: a representation of the board using an (18, 8, 8) shape, good as input to a policy / value network
+        :return: a representation of the board using an (?, 9, 9) shape, good as input to a policy / value network
         """
-        return canon_input_planes(self.board.sfen())
+        sfen = self.board.sfen()
+        sfen_info = SfenInfo(sfen)
+        if not self.white_to_move:
+            sfen_info = sfen_info.get_flipped_sfen_info()
+        canonical_input = CanonicalInput(sfen_info, self.map_count_state[sfen_info.board])
+        return canonical_input.create()
 
-    def testeval(self, absolute=False) -> float:
-        return testeval(self.board.sfen(), absolute)
+
+class SfenInfo:
+
+    def __init__(self, sfen):
+
+        self.sfen = sfen
+
+        tmp = sfen.split(" ")
+        self.board = tmp[0]
+        self.turn = tmp[1]  # w or b
+        self.hand = tmp[2]
+        self.harf_turn_count = int(tmp[3])
+
+        self._flipped_sfen_info = None
+
+    def get_flipped_sfen_info(self):
+        def swapcase(a):
+            if a.isalpha():
+                return a.lower() if a.isupper() else a.upper()
+            return a
+
+        def swapall(aa):
+            return "".join([swapcase(a) for a in aa])
+
+        tmp = self.sfen.split(" ")
+        board = tmp[0]
+        turn = tmp[1]
+        hand = tmp[2]
+
+        board = "/".join(swapall(row) for row in reversed(board.split("/")))
+        turn = 'w' if turn == 'b' else 'b'
+        hand = swapall(hand)
+
+        flipped_sfen = " ".join([board, turn, hand] + tmp[3:])
+        return SfenInfo(flipped_sfen)
+
+    def get_indexed_board(self):
+        indexed_board = np.zeros(81, dtype=np.uint8)
+        ptr = 0
+        cnt = 0
+        while cnt < 81:
+            if self.board[ptr].isdigit():
+                cnt += int(self.board[ptr])
+            elif self.board[ptr] == '/':
+                pass
+            else:
+                piece = self.board[ptr]
+                # promotion
+                if piece == '+':
+                    ptr += 1
+                    piece += self.board[ptr]
+                indexed_board[cnt] = PICCES_IDX[piece]
+                cnt += 1
+            ptr += 1
+
+        return indexed_board.reshape((9, 9))
+
+    def get_indexed_hand(self):
+        indexed_hand = {}
+        num = 1
+        for s in self.hand:
+            # no hand
+            if s == '-':
+                break
+
+            if s.isdigit():
+                num = int(s)
+            else:
+                indexed_hand[HANDABLE_PIECES_IDX[s]] = num
+                num = 1
+
+        return indexed_hand
+
+
+class CanonicalInput:
+    """
+    Create canonical input (i.e. input to neural net model) from current SFEN
+
+    Attributes:
+        :ivar SfenInfo sfen: SFEN that keeps always player as a white player
+    """
+
+    def __init__(self, sfen_info, count_same_state):
+        self.sfen_info = sfen_info
+        self.count_same_state = count_same_state
+
+    def create(self):
+        """
+        Create canonical input
+
+        Attributes:
+            :return : (?, 9, 9) representation of the game state
+        """
+        logger.debug("enter")
+        board_features = self._create_board_features()
+        hand_features = self._create_hand_features()
+        game_features = self._create_game_features()
+
+        all_features = np.vstack([board_features, hand_features, game_features])
+        return all_features
+
+    def _create_board_features(self):
+        board_features = np.zeros((NUM_PIECES, 9, 9), dtype=np.float32)
+        indexed_board = self.sfen_info.get_indexed_board()
+
+        for i in range(9):
+            for j in range(9):
+                board_features[indexed_board[i, j], i, j] = 1
+
+        return board_features
+
+    def _create_hand_features(self):
+        hand_features = np.zeros((NUM_HANDABLE_PIECES, 9, 9), dtype=np.float32)
+        indexed_hand = self.sfen_info.get_indexed_hand()
+        for piece, num in indexed_hand.items():
+            hand_features[piece] = num
+        return hand_features
+
+    def _create_game_features(self):
+        count_same_state_feature = np.full((9, 9), self.count_same_state, dtype=np.float32)
+        #turn_feature = np.full((9, 9), self.sfen_info.turn == 'w', dtype=np.float32)
+        turn_count_feature = np.full((9, 9), self.sfen_info.harf_turn_count, dtype=np.float32)
+        return np.stack([count_same_state_feature, turn_count_feature])
+
 
 '''
-def testeval(fen, absolute=False) -> float:
-    piece_vals = {'K': 3, 'Q': 14, 'R': 5, 'B': 3.25, 'N': 3, 'P': 1}  # somehow it doesn't know how to keep its queen
-    ans = 0.0
-    tot = 0
-    for c in fen.split(' ')[0]:
-        if not c.isalpha():
-            continue
-
-        if c.isupper():
-            ans += piece_vals[c]
-            tot += piece_vals[c]
-        else:
-            ans -= piece_vals[c.upper()]
-            tot += piece_vals[c.upper()]
-    v = ans/tot
-    if not absolute and is_black_turn(fen):
-        v = -v
-    assert abs(v) < 1
-    return np.tanh(v * 3) # arbitrary
-
-
 def check_current_planes(realfen, planes):
     cur = planes[0:12]
     assert cur.shape == (12, 9, 9)
@@ -228,122 +323,4 @@ def check_current_planes(realfen, planes):
     return "".join(fakefen) == replace_tags_board(realfen)
 
 
-def canon_input_planes(fen):
-    """
-
-    :param fen:
-    :return : (18, 8, 8) representation of the game state
-    """
-    fen = maybe_flip_fen(fen, is_black_turn(fen))
-    return all_input_planes(fen)
-
-
-def all_input_planes(fen):
-    current_aux_planes = aux_planes(fen)
-
-    history_both = to_planes(fen)
-
-    ret = np.vstack((history_both, current_aux_planes))
-    assert ret.shape == (18, 8, 8)
-    return ret
-
-
-def maybe_flip_fen(fen, flip = False):
-    if not flip:
-        return fen
-    foo = fen.split(' ')
-    rows = foo[0].split('/')
-    def swapcase(a):
-        if a.isalpha():
-            return a.lower() if a.isupper() else a.upper()
-        return a
-    def swapall(aa):
-        return "".join([swapcase(a) for a in aa])
-    return "/".join([swapall(row) for row in reversed(rows)]) \
-        + " " + ('w' if foo[1] == 'b' else 'b') \
-        + " " + "".join(sorted(swapall(foo[2]))) \
-        + " " + foo[3] + " " + foo[4] + " " + foo[5]
-
-
-def aux_planes(fen):
-    foo = fen.split(' ')
-
-    en_passant = np.zeros((8, 8), dtype=np.float32)
-    if foo[3] != '-':
-        eps = alg_to_coord(foo[3])
-        en_passant[eps[0]][eps[1]] = 1
-
-    fifty_move_count = int(foo[4])
-    fifty_move = np.full((8, 8), fifty_move_count, dtype=np.float32)
-
-    castling = foo[2]
-    auxiliary_planes = [np.full((8, 8), int('K' in castling), dtype=np.float32),
-                        np.full((8, 8), int('Q' in castling), dtype=np.float32),
-                        np.full((8, 8), int('k' in castling), dtype=np.float32),
-                        np.full((8, 8), int('q' in castling), dtype=np.float32),
-                        fifty_move,
-                        en_passant]
-
-    ret = np.asarray(auxiliary_planes, dtype=np.float32)
-    assert ret.shape == (6, 8, 8)
-    return ret
-
-# FEN board is like this:
-# a8 b8 .. h8
-# a7 b7 .. h7
-# .. .. .. ..
-# a1 b1 .. h1
-# 
-# FEN string is like this:
-#  0  1 ..  7
-#  8  9 .. 15
-# .. .. .. ..
-# 56 57 .. 63
-
-# my planes are like this:
-# 00 01 .. 07
-# 10 11 .. 17
-# .. .. .. ..
-# 70 71 .. 77
-#
-
-
-def alg_to_coord(alg):
-    rank = 8 - int(alg[1])        # 0-7
-    file = ord(alg[0]) - ord('a') # 0-7
-    return rank, file
-
-
-def coord_to_alg(coord):
-    letter = chr(ord('a') + coord[1])
-    number = str(8 - coord[0])
-    return letter + number
-
-
-def to_planes(fen):
-    board_state = replace_tags_board(fen)
-    pieces_both = np.zeros(shape=(12, 8, 8), dtype=np.float32)
-    for rank in range(8):
-        for file in range(8):
-            v = board_state[rank * 8 + file]
-            if v.isalpha():
-                pieces_both[ind[v]][rank][file] = 1
-    assert pieces_both.shape == (12, 8, 8)
-    return pieces_both
-
-
-def replace_tags_board(board_san):
-    board_san = board_san.split(" ")[0]
-    board_san = board_san.replace("2", "11")
-    board_san = board_san.replace("3", "111")
-    board_san = board_san.replace("4", "1111")
-    board_san = board_san.replace("5", "11111")
-    board_san = board_san.replace("6", "111111")
-    board_san = board_san.replace("7", "1111111")
-    board_san = board_san.replace("8", "11111111")
-    return board_san.replace("/", "")
-
-
-def is_black_turn(fen):
-    return fen.split(" ")[1] == 'b'
 '''

@@ -1,10 +1,10 @@
 """
-Manages starting off each of the separate processes involved in ChessZero -
+Manages starting off each of the separate processes involved in ShogiZero -
 self play, training, and evaluation.
 """
 import argparse
 
-from logging import getLogger,disable
+from logging import getLogger, disable
 
 from .lib.logger import setup_logger
 from .config import Config
@@ -52,7 +52,7 @@ def start():
     config_type = args.type
 
     if args.cmd == 'uci':
-        disable(999999) # plz don't interfere with uci
+        disable(999999)  # plz don't interfere with uci
 
     config = Config(config_type=config_type)
     setup(config, args)
