@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from glob import glob
 from logging import getLogger
-
+import pickle
 import shogi
 #import pyperclip
 from shogi_zero.config import ResourceConfig
@@ -46,16 +46,10 @@ def get_next_generation_model_dirs(rc: ResourceConfig):
 
 
 def write_game_data_to_file(path, data):
-    try:
-        with open(path, "wt") as f:
-            json.dump(data, f)
-    except Exception as e:
-        print(e)
+    with open(path, "wb") as f:
+        pickle.dump(data, f, -1)
 
 
 def read_game_data_from_file(path):
-    try:
-        with open(path, "rt") as f:
-            return json.load(f)
-    except Exception as e:
-        print(e)
+    with open(path, "rb") as f:
+        return pickle.load(f)

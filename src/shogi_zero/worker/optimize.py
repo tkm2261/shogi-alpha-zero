@@ -1,8 +1,8 @@
 """
-Encapsulates the worker which trains ChessModels using game data from recorded games from a file.
+Encapsulates the worker which trains ShogiModels using game data from recorded games from a file.
 """
 import os
-from collections import deque
+from collections import deque, defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from logging import getLogger
@@ -11,11 +11,12 @@ from random import shuffle
 
 import numpy as np
 
-from chess_zero.agent.model_chess import ChessModel
-from chess_zero.config import Config
-from chess_zero.env.chess_env import canon_input_planes, is_black_turn, testeval
-from chess_zero.lib.data_helper import get_game_data_filenames, read_game_data_from_file, get_next_generation_model_dirs
-from chess_zero.lib.model_helper import load_best_model_weight
+from shogi_zero.agent.model_shogi import ShogiModel
+from shogi_zero.config import Config
+#from shogi_zero.env.shogi_env import canon_input_planes, is_black_turn, testeval
+from shogi_zero.env.shogi_env import SfenInfo, CanonicalInput
+from shogi_zero.lib.data_helper import get_game_data_filenames, read_game_data_from_file, get_next_generation_model_dirs
+from shogi_zero.lib.model_helper import load_best_model_weight
 
 from keras.optimizers import Adam
 from keras.callbacks import TensorBoard
@@ -32,21 +33,22 @@ def start(config: Config):
 
 class OptimizeWorker:
     """
-    Worker which optimizes a ChessModel by training it on game data
+    Worker which optimizes a ShogiModel by training it on game data
 
     Attributes:
         :ivar Config config: config for this worker
-        :ivar ChessModel model: model to train
+        :ivar ShogiModel model: model to train
         :ivar dequeue,dequeue,dequeue dataset: tuple of dequeues where each dequeue contains game states,
             target policy network values (calculated based on visit stats
                 for each state during the game), and target value network values (calculated based on
                     who actually won the game after that state)
         :ivar ProcessPoolExecutor executor: executor for running all of the training processes
     """
+
     def __init__(self, config: Config):
         self.config = config
-        self.model = None  # type: ChessModel
-        self.dataset = deque(),deque(),deque()
+        self.model = None  # type: ShogiModel
+        self.dataset = deque(), deque(), deque()
         self.executor = ProcessPoolExecutor(max_workers=config.trainer.cleaning_processes)
 
     def start(self):
@@ -71,7 +73,7 @@ class OptimizeWorker:
             total_steps += steps
             self.save_current_model()
             a, b, c = self.dataset
-            while len(a) > self.config.trainer.dataset_size/2:
+            while len(a) > self.config.trainer.dataset_size / 2:
                 a.popleft()
                 b.popleft()
                 c.popleft()
@@ -99,7 +101,7 @@ class OptimizeWorker:
         Compiles the model to use optimizer and loss function tuned for supervised learning
         """
         opt = Adam()
-        losses = ['categorical_crossentropy', 'mean_squared_error'] # avoid overfit for supervised 
+        losses = ['categorical_crossentropy', 'mean_squared_error']  # avoid overfit for supervised
         self.model.model.compile(optimizer=opt, loss=losses, loss_weights=self.config.trainer.loss_weights)
 
     def save_current_model(self):
@@ -125,14 +127,15 @@ class OptimizeWorker:
                     break
                 filename = self.filenames.popleft()
                 logger.debug(f"loading data from {filename}")
-                futures.append(executor.submit(load_data_from_file,filename))
+                futures.append(executor.submit(load_data_from_file, filename))
             while futures and len(self.dataset[0]) < self.config.trainer.dataset_size:
-                for x,y in zip(self.dataset,futures.popleft().result()):
-                    x.extend(y)
+                for x, y in zip(self.dataset, futures.popleft().result()):
+                    if y is not None:
+                        x.extend(y)
                 if len(self.filenames) > 0:
                     filename = self.filenames.popleft()
                     logger.debug(f"loading data from {filename}")
-                    futures.append(executor.submit(load_data_from_file,filename))
+                    futures.append(executor.submit(load_data_from_file, filename))
 
     def collect_all_loaded_data(self):
         """
@@ -140,7 +143,7 @@ class OptimizeWorker:
         :return: a tuple containing the data in self.dataset, split into
         (state, policy, and value).
         """
-        state_ary,policy_ary,value_ary=self.dataset
+        state_ary, policy_ary, value_ary = self.dataset
 
         state_ary1 = np.asarray(state_ary, dtype=np.float32)
         policy_ary1 = np.asarray(policy_ary, dtype=np.float32)
@@ -152,7 +155,7 @@ class OptimizeWorker:
         Loads the next generation model from the appropriate directory. If not found, loads
         the best known model.
         """
-        model = ChessModel(self.config)
+        model = ShogiModel(self.config)
         rc = self.config.resource
 
         dirs = get_next_generation_model_dirs(rc)
@@ -171,7 +174,16 @@ class OptimizeWorker:
 
 def load_data_from_file(filename):
     data = read_game_data_from_file(filename)
-    return convert_to_cheating_data(data)
+    try:
+        return convert_to_cheating_data(data)
+    except KeyError as e:
+        print("AAAAA", filename)
+        raise e
+        return None, None, None
+    except TypeError as e:
+        print("BBBBB", filename)
+        raise e
+        return None, None, None
 
 
 def convert_to_cheating_data(data):
@@ -182,16 +194,23 @@ def convert_to_cheating_data(data):
     state_list = []
     policy_list = []
     value_list = []
-    for state_fen, policy, value in data:
+    map_count_state = defaultdict(int)
+    for aaa in data:
+        state_sfen, policy, value = aaa
+        sfen_info = SfenInfo(state_sfen)
+        map_count_state[sfen_info.board] += 1
+        same_state_count = map_count_state[sfen_info.board]
+        if sfen_info.turn == 'w':
+            sfen_info = sfen_info.get_flipped_sfen_info()
 
-        state_planes = canon_input_planes(state_fen)
-
-        if is_black_turn(state_fen):
+        canonical_input = CanonicalInput(sfen_info, same_state_count)
+        state_planes = canonical_input.create()
+        if sfen_info.turn == 'w':
             policy = Config.flip_policy(policy)
 
-        move_number = int(state_fen.split(' ')[5])
-        value_certainty = min(5, move_number)/5 # reduces the noise of the opening... plz train faster
-        sl_value = value*value_certainty + testeval(state_fen, False)*(1-value_certainty)
+        move_number = int(state_sfen.split(' ')[3])
+        value_certainty = min(5, move_number) / 5  # reduces the noise of the opening... plz train faster
+        sl_value = value * value_certainty
 
         state_list.append(state_planes)
         policy_list.append(policy)

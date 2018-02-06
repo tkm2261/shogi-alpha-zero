@@ -59,8 +59,9 @@ class SupervisedLearningWorker:
                          f"{' by resign ' if env.resigned else '           '}"
                          f"{env.observation.split(' ')[0]}")
 
-        with ProcessPoolExecutor(max_workers=7) as executor:
+        with ProcessPoolExecutor(max_workers=3) as executor:
             games = self.get_games_from_all_files()
+
             # poisoned reference (memleak)
             for i, game in enumerate(games):
                 job = executor.submit(get_buffer, self.config, game, len(games), i)
@@ -84,7 +85,7 @@ class SupervisedLearningWorker:
         rc = self.config.resource
         path = os.path.join(rc.play_data_dir, rc.play_data_filename_tmpl % game_id)
         logger.info(f"save play data to {path}")
-        thread = Thread(target=write_game_data_to_file, args=(path, [data]))
+        thread = Thread(target=write_game_data_to_file, args=(path, data))
         thread.start()
 
     def get_games_from_file(self, filename):
