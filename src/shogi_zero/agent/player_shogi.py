@@ -101,25 +101,6 @@ class ShogiPlayer:
         """
         self.tree = defaultdict(VisitStats)
 
-    def deboog(self, env):
-        print(env.testeval())
-
-        state = state_key(env)
-        my_visit_stats = self.tree[state]
-        stats = []
-        for action, a_s in my_visit_stats.a.items():
-            moi = self.move_lookup[action]
-            stats.append(np.asarray([a_s.n, a_s.w, a_s.q, a_s.p, moi]))
-        stats = np.asarray(stats)
-        a = stats[stats[:, 0].argsort()[::-1]]
-
-        for s in a:
-            print(f'{self.labels[int(s[4])]:5}: '
-                  f'n: {s[0]:3.0f} '
-                  f'w: {s[1]:7.3f} '
-                  f'q: {s[2]:7.3f} '
-                  f'p: {s[3]:7.5f}')
-
     def action(self, env, can_stop=True) -> str:
         """
         Figures out the next best move
@@ -143,6 +124,9 @@ class ShogiPlayer:
             legal_moves.append(idx)
             legal_policy.append(policy[idx])
 
+        if len(legal_policy) == 0:
+            return None
+
         my_action = int(np.random.choice(legal_moves,
                                          p=self.apply_temperature(legal_policy, env.num_halfmoves)))
 
@@ -152,8 +136,8 @@ class ShogiPlayer:
             # noinspection PyTypeChecker
             return None
         else:
-            #self.moves.append([env.observation, list(policy), root_value])
-            self.moves.append([env.observation, root_value])
+            self.moves.append([env.observation, list(policy)])
+            #self.moves.append([env.observation, root_value])
             return self.config.labels[my_action]
 
     def search_moves(self, env) -> (float, float):
@@ -206,10 +190,6 @@ class ShogiPlayer:
             # SELECT STEP
             action_t = self.select_action_q_and_u(env, is_root_node)
             if action_t is None:
-                print("AAAAAAAAAAAAAAAAAAAAAAAA")
-                print(env.white_to_move)
-                print(env.board)
-                print("AAAAAAAAAAAAAAAAAAAAAAAA")
                 return -1
             virtual_loss = self.play_config.virtual_loss
 
@@ -365,7 +345,7 @@ class ShogiPlayer:
         k = self.move_lookup[shogi.Move.from_usi(my_action)]
         policy[k] = weight
 
-        self.moves.append([observation])
+        self.moves.append([observation, list(policy)])
         return my_action
 
     def finish_game(self, z):

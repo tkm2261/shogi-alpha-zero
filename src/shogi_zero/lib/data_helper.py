@@ -27,7 +27,7 @@ def pretty_print(env, colors):
     # pyperclip.copy(env.board.fen())
 
 
-def find_pgn_files(directory, pattern='*.pgn'):
+def find_kif_files(directory, pattern='*.kif'):
     dir_pattern = os.path.join(directory, pattern)
     files = list(sorted(glob(dir_pattern)))
     return files
