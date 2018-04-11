@@ -126,8 +126,8 @@ def self_play_buffer(config, cur) -> (ShogiEnv, list):
     black = ShogiPlayer(config, pipes=pipes)
 
     while not env.done:
-        # print(env.board)
-        print(env.board.sfen())
+        print(env.board)
+        # logger.info(env.board.sfen())
         if env.white_to_move:
             action = white.action(env)
         else:

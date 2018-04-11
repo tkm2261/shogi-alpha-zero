@@ -100,7 +100,7 @@ class ShogiEnv:
             return
         board = self.board.sfen().split(" ")[0]
         self.map_count_state[board] += 1
-        if self.map_count_state[board] >= 4:
+        if check_over and self.map_count_state[board] >= 4:
             self.ending_average_game()
             return
 

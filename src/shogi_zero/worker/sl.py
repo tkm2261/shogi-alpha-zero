@@ -54,7 +54,7 @@ class SupervisedLearningWorker:
                 return
 
             self.save_data(data, game_id)
-            logger.debug(f"game  "
+            logger.debug(f"game {game_id}"
                          f"halfmoves={env.num_halfmoves:3} {env.winner:12}"
                          f"{' by resign ' if env.resigned else '           '}"
                          f"{env.observation.split(' ')[0]}")
@@ -102,7 +102,8 @@ class SupervisedLearningWorker:
             return []
 
         for kif in kifs:
-            kif['game_id'] = game_id
+            kif["game_id"] = game_id
+            kif["win"] = "w" if len(kif["moves"]) % 2 == 0 else "b"
         n = len(kifs)
         logger.debug(f"found {n} games in {filename}")
         return kifs
@@ -125,17 +126,18 @@ def _get_buffer(config, game, tot_num, idx):
     env = ShogiEnv().reset()
     white = ShogiPlayer(config, dummy=True)
     black = ShogiPlayer(config, dummy=True)
-    for move in game['moves']:
+    for move in game["moves"]:
         if env.white_to_move:
             action = white.sl_action(env.observation, move)  # ignore=True
         else:
             action = black.sl_action(env.observation, move)  # ignore=True
         env.step(action, False)
 
-    if game['win'] == 'w':
+    # this program define white as "Sente".
+    if game['win'] == "b":
         env.winner = Winner.white
         black_win = -1
-    elif game['win'] == 'b':
+    elif game["win"] == "w":
         env.winner = Winner.black
         black_win = 1
     else:

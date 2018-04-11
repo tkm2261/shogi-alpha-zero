@@ -177,12 +177,8 @@ def load_data_from_file(filename):
     try:
         return convert_to_cheating_data(data)
     except KeyError as e:
-        print("AAAAA", filename)
-        raise e
         return None, None, None
     except TypeError as e:
-        print("BBBBB", filename)
-        raise e
         return None, None, None
 
 
