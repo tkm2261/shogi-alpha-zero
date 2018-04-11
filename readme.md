@@ -1,7 +1,13 @@
 About
 =====
 
+Shogi reinforcement learning by [AlphaGo Zero](https://deepmind.com/blog/alphago-zero-learning-scratch/) methods.
 
+* This repo simply translate the [@Zeta36's chess implementation](https://github.com/Zeta36/chess-alpha-zero/) to shogi one.
+* As mentioned by @Zeta36, the self-play is very slow. Moreover, shogi needs much more computing resources.  
+This repo may be only useful for just learning reinforcement learning
+* There might be many bugs in this repo since I am a beginner of reinforcement learning. I am happy if you report it as an issue.
+* White is "Sente" (first move) in this repo.  
 
 Environment
 -----------
@@ -15,6 +21,8 @@ Environment
 ```bash
 python src/shogi_zero/run.py sl
 ```
+
+I put many kif files in `/scripts/kif/` for many people to start learning easily although it makes this repo heavy.
 
 ### Reinforcement Learning
 
@@ -32,6 +40,7 @@ Data
 * `data/model/next_generation/*`: next-generation models.
 * `data/play_data/play_*.json`: generated training data.
 * `logs/main.log`: log file.
+* `/scripts/kif/`: kif files for supervised learning 
 
 If you want to train the model from the beginning, delete the above directories.
 
